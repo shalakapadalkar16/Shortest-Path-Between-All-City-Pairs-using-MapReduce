@@ -1,0 +1,83 @@
+ShortestPath_Floyd_Warshall(input_dir, intermediate_output_dir, final_output_dir, num_nodes):
+    # Job 1: Find the shortest paths between directly connected nodes
+    job1 = Job("Shortest Path")
+    job1.setMapperClass(ShortestPathMapper)
+    job1.setReducerClass(ShortestPathReducer)
+    job1.addInputPath(input_dir)
+    job1.setOutputPath(intermediate_output_dir)
+
+    # Job 2: Find the shortest paths with up to 3 hops using Floyd-Warshall algorithm
+    job2 = Job("Floyd Warshall")
+    job2.setMapperClass(FloydWarshallMapper)
+    job2.setReducerClass(FloydWarshallReducer)
+    job2.setNumPartitions(num_nodes)
+    job2.addInputPath(intermediate_output_dir)
+    job2.setOutputPath(final_output_dir)
+
+    # Run both jobs sequentially
+    exitCode = job1.run()
+    if exitCode == 0:
+        exitCode = job2.run()
+
+    return exitCode
+
+ShortestPathMapper(key, value):
+    fields = value.split(",")
+    origin = fields[0]
+    dest = fields[1]
+    distance = parseDouble(fields[2])
+    emit(origin + "," + dest, distance)
+    emit(dest + "," + origin, distance)
+
+ShortestPathReducer(key, values):
+    shortestDistance = Double.MAX_VALUE
+    for value in values:
+        shortestDistance = min(shortestDistance, value)
+    emit(key, shortestDistance)
+
+FloydWarshallMapper(key, value):
+    fields = value.split(",")
+    source = fields[0]
+    dest = fields[1]
+    distance = parseDouble(fields[2])
+    partitionId = getPartitionId(source)
+    emit(partitionId, source + "," + dest + "," + distance)
+
+FloydWarshallReducer(key, values):
+    distances = new HashMap<String, HashMap<String, Double>>()
+
+    for value in values:
+        fields = value.split(",")
+        source = fields[0]
+        dest = fields[1]
+        distance = parseDouble(fields[2])
+        destDistances = distances.getOrDefault(source, new HashMap<String, Double>())
+        destDistances.put(dest, distance)
+        distances.put(source, destDistances)
+
+    vertices = distances.keySet()
+
+    for intermediateVertex in vertices:
+        for sourceVertex in vertices:
+            for destVertex in vertices:
+                sourceDistances = distances.get(sourceVertex)
+                intermediateDistances = distances.get(intermediateVertex)
+                newDistance = getDistance(sourceDistances, intermediateVertex) + getDistance(intermediateDistances, destVertex)
+                currentDistance = getDistance(sourceDistances, destVertex)
+                if newDistance < currentDistance:
+                    sourceDistances.put(destVertex, newDistance)
+
+    for entry in distances.entrySet():
+        sourceVertex = entry.getKey()
+        destDistances = entry.getValue()
+        for destEntry in destDistances.entrySet():
+            destVertex = destEntry.getKey()
+            distance = destEntry.getValue()
+            emit(sourceVertex + "," + destVertex, distance)
+
+getDistance(distances, vertex):
+    distance = distances.get(vertex)
+    if distance is not null:
+        return distance
+    else:
+        return Double.POSITIVE_INFINITY

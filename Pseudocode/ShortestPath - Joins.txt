@@ -1,0 +1,82 @@
+ShortestPath(input_dir, intermediate_output_dir, final_output_dir):
+    # Job 1: Perform 1 hop
+    job1 = Job("Shortest Path - 1 Hop")
+    job1.setMapperClass(ShortestPathMapper)
+    job1.setReducerClass(ShortestPathReducer)
+    job1.addInputPath(input_dir)
+    job1.setOutputPath(intermediate_output_dir + "/hop1")
+
+    # Job 2: Perform 2 hops
+    job2 = Job("Shortest Path - 2 Hops")
+    job2.setMapperClass(HopMapper)
+    job2.setReducerClass(HopReducer)
+    job2.addInputPath(input_dir)
+    job2.addInputPath(intermediate_output_dir + "/hop1")
+    job2.setOutputPath(intermediate_output_dir + "/hop2")
+
+    # Job 3: Perform 3 hops
+    job3 = Job("Shortest Path - 3 Hops")
+    job3.setMapperClass(HopMapper)
+    job3.setReducerClass(HopReducer)
+    job3.addInputPath(input_dir)
+    job3.addInputPath(intermediate_output_dir + "/hop1")
+    job3.addInputPath(intermediate_output_dir + "/hop2")
+    job3.setOutputPath(intermediate_output_dir + "/hop3")
+
+    # Job 4: Find the shortest paths
+    job4 = Job("Shortest Path - Final")
+    job4.setMapperClass(ShortestPathMapper)
+    job4.setReducerClass(ShortestPathReducer)
+    job4.addInputPath(input_dir)
+    job4.addInputPath(intermediate_output_dir + "/hop1")
+    job4.addInputPath(intermediate_output_dir + "/hop2")
+    job4.addInputPath(intermediate_output_dir + "/hop3")
+    job4.setOutputPath(final_output_dir)
+
+    # Run all jobs sequentially
+    exitCode = job1.run()
+    if exitCode == 0:
+        exitCode = job2.run()
+    if exitCode == 0:
+        exitCode = job3.run()
+    if exitCode == 0:
+        exitCode = job4.run()
+
+    return exitCode
+
+HopMapper(key, value):
+    fields = value.split("[\t,]")
+    if fields.length == 3:
+        origin = fields[0]
+        dest = fields[1]
+        distance = fields[2]
+        emit(origin, dest + "," + distance)
+        emit(dest, origin + "," + distance)
+
+HopReducer(key, values):
+    neighbors = new HashSet()
+    for value in values:
+        neighbors.add(value)
+    for neighbor in neighbors:
+        emit(key, neighbor)
+
+ShortestPathMapper(key, value):
+    fields = value.split("[\t,]")
+    if fields.length == 2:
+        origin = fields[0]
+        destDistance = fields[1].split(",")
+        if destDistance.length == 2:
+            dest = destDistance[0]
+            distance = parseDouble(destDistance[1])
+            emit(origin + "," + dest, distance)
+    else if fields.length == 3:
+        origin = fields[0]
+        dest = fields[1]
+        distance = parseDouble(fields[2])
+        emit(origin + "," + dest, distance)
+
+ShortestPathReducer(key, values):
+    minDistance = Double.MAX_VALUE
+    for value in values:
+        minDistance = min(minDistance, value)
+    emit(key, minDistance)
